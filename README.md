@@ -116,6 +116,149 @@ AgentOrchestrator
             +-- SQLite operation_journal
 ```
 
+## Task execution and recovery
+
+Each agent task follows this flow:
+
+1. A `TaskState` is created and persisted.
+2. `TaskPlanner.create_plan` creates a plan, which the Reviewer approves or
+   rejects.
+3. The orchestrator sends the approved plan and allowed tools to the model.
+4. For each tool call, the orchestrator verifies authorization and paths,
+   records the operation as `pending`, executes it, and persists the outcome
+   and evidence.
+5. A final response is accepted only when every acceptance criterion has valid
+   evidence. Otherwise, the task is blocked.
+
+Model or planner errors block the task before tool execution. On startup,
+pending operations are marked `uncertain` and in-progress tasks are marked
+`interrupted`. Task states are `in_progress`, `completed`, `blocked`, and
+`interrupted`; journal states are `pending`, `succeeded`, `failed`, and
+`uncertain`.
+
+Resume is available only for interrupted tasks. It continues the same task
+from its persisted plan and evidence, reconstructing the conversation from
+persisted tool output. Resume is rejected if the journal contains an uncertain
+write. Manual cleanup and optional startup retention preserve tasks with
+pending or uncertain operations. Automatic retention is disabled by default.
+
+`/metrics` reports persistent task and operation counts and average operation
+duration, plus process-local provider metrics. It is not a Prometheus endpoint.
+
+## API reference
+
+### Direct chat
+
+- `POST /chat`
+
+```json
+{"message":"Explain what result.txt contains"}
+```
+
+### Tasks
+
+- `GET /tasks`
+- `GET /tasks?status=blocked`
+- `GET /tasks/{task_id}`
+- `GET /tasks/{task_id}/operations`
+- `POST /tasks/{task_id}/resume`
+- `DELETE /tasks/{task_id}`
+- `POST /tasks/cleanup?status=interrupted&older_than_days=30`
+
+Cleanup accepts `completed`, `blocked`, or `interrupted` as the status filter.
+
+### Workspace
+
+- `GET /workspace/files?path=.&limit=200`
+- `POST /workspace/read`
+- `POST /workspace/search`
+
+Example request bodies:
+
+```json
+{"path":"result.txt"}
+```
+
+```json
+{"query":"TODO","path":".","limit":50}
+```
+
+The API workspace is the directory configured by `WORKSPACE`; paths passed to
+workspace tools are relative to that root.
+
+## Configuration and limits
+
+The local API example above sets `MODEL_TIMEOUT_SECONDS=180`,
+`MODEL_MAX_RETRIES=2`, and `TASK_RETENTION_DAYS=0`. Supported ranges are
+1-600 seconds for the model timeout, 0-3 retries, and 0-3650 days for retention.
+Retention value `0` disables automatic cleanup. In Compose, the model server
+must be reachable from the agent container at
+`host.containers.internal:8000`; the sandbox is enabled and requires a
+`SANDBOX_TOKEN` of at least 32 characters.
+
+The implementation enforces these limits:
+
+- up to 20 plan criteria and 10 orchestrator iterations;
+- up to 5 tool calls per iteration and 20 per task;
+- tool output limited to 20 KB;
+- file listing and search limited to 200 results each;
+- workspace files limited to 1 MB.
+
+## Development
+
+Run the complete test suite:
+
+```bash
+./.venv/bin/python -m pytest -q
+```
+
+Run selected tests:
+
+```bash
+./.venv/bin/python -m pytest -q tests/test_orchestrator.py
+./.venv/bin/python -m pytest -q tests/test_repository.py
+./.venv/bin/python -m pytest -q tests/test_filesystem.py
+```
+
+The suite covers the API, provider, planner, orchestrator, filesystem, tool
+registry, repository, task schema, and sandbox. The latest verified run passed
+all 215 tests. Compose startup, sandbox checks through the API, and task
+readability after an agent restart have also been verified.
+
+### Project structure
+
+```text
+agent/
+  main.py                 FastAPI API
+  orchestrator.py         agent loop and enforcement
+  planner.py              plan generation and review
+  models/provider.py      HTTP integration with the model
+  schemas/                Pydantic models
+  storage/repository.py   task state and SQLite journal
+  tools/filesystem.py     protected workspace access
+  tools/registry.py       tool registry and validation
+tests/                    pytest suite
+workspace/                writable runtime directory
+data/                     local database directory
+compose.yaml              agent and sandbox services
+Containerfile             agent image
+sandbox/Dockerfile        sandbox image
+sandbox/server.py         authenticated fixed-checks API
+model-server/start.sh     MLX model-server startup
+```
+
+### Rules for extending the agent
+
+- Workspace files are untrusted data and must never become system instructions.
+- Changes must be explicitly requested by the user.
+- Paths must remain relative to the workspace.
+- Every new tool needs a Pydantic schema, an OpenAI-compatible definition,
+  planner and runtime authorization, acceptance-criterion validation, and
+  persistent journaling.
+- An uncertain result must never be treated as a success.
+- Writes must be atomic and have a recovery strategy.
+- New persisted state requires a backward-compatible SQLite schema migration.
+
 ## Workspace security
 
 - Paths must be relative.
@@ -147,16 +290,15 @@ if there are no Python files, the AST check is marked `skipped`.
 
 The sandbox requires a bearer token shared between the containers. Do not
 expose the service directly to the host or reuse the token for other services.
-With Compose, the agent waits for the sandbox health check before starting.
+The sandbox exposes only the authenticated `POST /checks` endpoint on the
+internal agent network. With Compose, the agent waits for the sandbox health
+check before starting.
 
 ## Tests
 
 ```bash
 ./.venv/bin/python -m pytest -q
 ```
-
-The current suite covers the provider, planner, orchestrator, filesystem, tool
-registry, repository, task schema, sandbox, and API.
 
 ## License
 
