@@ -16,7 +16,7 @@ services:
       SANDBOX_TOKEN: ${SANDBOX_TOKEN:?Export a random token with at least 32 characters}
       SANDBOX_TIMEOUT_SECONDS: 180
       WORKSPACE: /workspace
-      DATABASE_PATH: /data/localcoder.db
+      DATABASE_PATH: /data/workbench.db
     ports:
       - "127.0.0.1:8001:8000"
     volumes:

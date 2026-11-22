@@ -23,7 +23,7 @@ from agent.schemas.workspace import (
     SearchRequest,
 )
 
-logger = logging.getLogger("localcoder")
+logger = logging.getLogger("workbench_coding_agent")
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO").upper(),
@@ -31,7 +31,7 @@ logging.basicConfig(
 )
 
 provider = ModelProvider()
-repository = TaskRepository(os.getenv("DATABASE_PATH", "data/localcoder.db"))
+repository = TaskRepository(os.getenv("DATABASE_PATH", "data/workbench.db"))
 orchestrator = AgentOrchestrator(provider, repository)
 
 
@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Local Coding Agent",
+    title="Workbench Coding Agent",
     version="0.2.0",
     lifespan=lifespan,
 )

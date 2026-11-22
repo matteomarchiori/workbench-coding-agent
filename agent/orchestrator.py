@@ -15,7 +15,7 @@ MAX_ITERATIONS = 10
 MAX_TOOL_CALLS_PER_ITERATION = 5
 MAX_TOTAL_TOOL_CALLS = 20
 MAX_TOOL_OUTPUT_CHARS = 20_000
-logger = logging.getLogger("localcoder")
+logger = logging.getLogger("workbench_coding_agent")
 
 
 SYSTEM_PROMPT = """

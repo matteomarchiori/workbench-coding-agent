@@ -27,7 +27,7 @@ IGNORED_DIRS = {
     ".ruff_cache",
 }
 
-app = FastAPI(title="LocalCoder Sandbox", version="0.1.0")
+app = FastAPI(title="Workbench Coding Agent Sandbox", version="0.1.0")
 
 
 def _authorized(authorization: str | None) -> bool:
@@ -193,7 +193,7 @@ def _run_fixed_checks() -> list[dict]:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "localcoder-sandbox"}
+    return {"status": "ok", "service": "workbench-coding-agent-sandbox"}
 
 
 @app.post("/checks")

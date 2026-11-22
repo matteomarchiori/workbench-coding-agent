@@ -1,8 +1,8 @@
-# LocalCoder
+# Workbench Coding Agent
 
-LocalCoder is a local coding agent for reading and modifying files inside a
-controlled `workspace` directory. It uses FastAPI and an OpenAI-compatible
-model, which can run locally with MLX.
+Workbench Coding Agent is a local coding agent for reading and modifying files
+inside a controlled `workspace` directory. It uses FastAPI and an
+OpenAI-compatible model, which can run locally with MLX.
 
 ## Features
 
@@ -53,7 +53,7 @@ MODEL_TIMEOUT_SECONDS=180 \
 MODEL_MAX_RETRIES=2 \
 TASK_RETENTION_DAYS=0 \
 WORKSPACE="$PWD/workspace" \
-DATABASE_PATH="$PWD/data/localcoder.db" \
+DATABASE_PATH="$PWD/data/workbench.db" \
 .venv/bin/python -m uvicorn agent.main:app --host 127.0.0.1 --port 8001
 ```
 
@@ -69,7 +69,7 @@ podman compose up --build
 ```
 
 The agent listens on `127.0.0.1:8001`. The workspace is mounted at
-`/workspace` and the database at `/data/localcoder.db`.
+`/workspace` and the database at `/data/workbench.db`.
 `TASK_RETENTION_DAYS` enables startup cleanup of expired terminal tasks; `0`
 (the default) disables automatic retention. `SANDBOX_TOKEN` is required by
 Compose; do not save it in project files. The sandbox endpoint is not exposed
@@ -302,4 +302,4 @@ check before starting.
 
 ## License
 
-LocalCoder is licensed under the [MIT License](LICENSE).
+Workbench Coding Agent is licensed under the [MIT License](LICENSE).

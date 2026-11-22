@@ -19,7 +19,7 @@ class TaskRepository:
     def __init__(self, database_path: str | Path | None = None):
         self.database_path = Path(
             database_path
-            or os.getenv("DATABASE_PATH", "/data/localcoder.db")
+            or os.getenv("DATABASE_PATH", "/data/workbench.db")
         )
 
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
