@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+**/.venv/
+
+# Test and tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# macOS
+.DS_Store
+
+# Local model artifacts and caches
+model-server/models/
+model-server/.cache/
+*.safetensors
+*.gguf
+
+# Runtime backups
+.agent_backups/
+workspace/.agent_backups/
+
+# Local runtime data
+/data/*
+!/data/.gitkeep
+/workspace/*
+!/workspace/.gitkeep
