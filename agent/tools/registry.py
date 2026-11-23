@@ -110,8 +110,9 @@ TOOL_DEFINITIONS = [
             "name": "write_workspace_file",
             "description": (
                 "Creates a file in the workspace or overwrites it when "
-                "overwrite is true. Before overwriting, creates a backup "
-                "of the original contents."
+                "overwrite is true. If overwrite is true and the file does "
+                "not exist, it is created. Before overwriting an existing "
+                "file, creates a backup of the original contents."
             ),
             "parameters": {
                 "type": "object",

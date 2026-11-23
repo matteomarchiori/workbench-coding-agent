@@ -306,7 +306,18 @@ def write_file(
                 "backup": None,
             }
 
-        original = _read_regular_file_bytes(filename, parent_fd)
+        try:
+            original = _read_regular_file_bytes(filename, parent_fd)
+        except FileNotFoundError:
+            _atomic_create_file(filename, parent_fd, data)
+
+            return {
+                "ok": True,
+                "path": relative_path,
+                "created": True,
+                "overwritten": False,
+                "backup": None,
+            }
 
         backup_path = _create_backup(
             relative_path,

@@ -299,6 +299,25 @@ def test_write_file_creates_file(workspace, monkeypatch):
     assert (workspace / "hello.txt").read_text() == "Ciao agente!"
 
 
+def test_write_file_with_overwrite_creates_missing_file(workspace, monkeypatch):
+    monkeypatch.setattr(filesystem, "WORKSPACE", workspace)
+
+    result = filesystem.write_file(
+        "CONTRIBUTING.md",
+        "# Contributing",
+        overwrite=True,
+    )
+
+    assert result == {
+        "ok": True,
+        "path": "CONTRIBUTING.md",
+        "created": True,
+        "overwritten": False,
+        "backup": None,
+    }
+    assert (workspace / "CONTRIBUTING.md").read_text() == "# Contributing"
+
+
 def test_write_file_does_not_overwrite(workspace, monkeypatch):
     monkeypatch.setattr(filesystem, "WORKSPACE", workspace)
 
