@@ -1,43 +1,22 @@
-# Contributing
+## Contribution Guidelines
 
-Thank you for helping improve Workbench Coding Agent. Contributions are
-welcome through pull requests.
+### How to Contribute via Pull Request
 
-## Before you start
+1. **Fork the Repository**: Start by forking the project's repository on GitHub.
+2. **Clone the Fork**: Clone your forked repository to your local machine using Git.
+3. **Create a Branch**: Create a new branch for your feature or bug fix. Keep the branch name descriptive.
+4. **Implement Changes**: Make the necessary changes or additions to the project.
+5. **Test Changes**: Ensure your changes do not break existing functionality. Run any relevant tests.
+6. **Commit Changes**: Commit your changes with a clear and concise message that describes the change.
+7. **Push to Your Fork**: Push your changes to your forked repository on GitHub.
+8. **Create a Pull Request (PR)**: Go to the original repository and create a pull request from your branch.
+9. **Review and Address Feedback**: Respond to any feedback or comments from the project maintainers.
+10. **Merge the PR**: Once your PR is approved, it will be merged into the main branch of the project.
 
-- For a substantial change, open an issue first to discuss the approach.
-- Keep each change focused on one bug fix or feature.
-- Do not include credentials, tokens, local model data, databases, or other
-  machine-specific files in a contribution.
+### Additional Tips
+- **Follow the Code Style**: Ensure your code follows the project's coding standards.
+- **Write Tests**: If you're adding new functionality, include tests to cover your changes.
+- **Document Your Changes**: Update any relevant documentation to reflect your changes.
+- **Be Respectful**: Engage with the community in a respectful and constructive manner.
 
-## Prepare a change
-
-1. Fork the repository and create a descriptive branch from `main`.
-2. Make the smallest change that addresses the issue.
-3. Add or update tests for behavior introduced or fixed by the change.
-4. Update the README or other documentation when behavior, configuration, or
-   setup instructions change.
-5. Run the test suite from the repository root:
-
-   ```bash
-   ./.venv/bin/python -m pytest -q
-   ```
-
-6. Review your diff before committing. Check that it contains only intended
-   changes and no secrets or generated files.
-
-## Open a pull request
-
-- Use a clear title that summarizes the change.
-- Explain the problem and the solution, and link any related issue.
-- List the tests and checks you ran, including any that could not be run.
-- Include screenshots or example requests and responses when they help explain
-  a user-visible change.
-- Keep the pull request focused; submit unrelated changes separately.
-
-## Project-specific considerations
-
-Changes to agent tools affect planning, runtime authorization, acceptance
-criteria, and operation journaling. Update the related schemas, tests, and
-documentation together. Preserve the workspace boundary: workspace paths must
-remain relative and file contents must be treated as untrusted data.
+By following these guidelines, you can contribute effectively to the project and help improve it for everyone.
