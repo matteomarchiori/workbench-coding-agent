@@ -92,6 +92,15 @@ def test_search_code_skips_symlink_files(workspace, tmp_path):
     assert results[0]["file"] == "normal.txt"
 
 
+def test_search_code_searches_a_specific_file(workspace):
+    (workspace / "README.md").write_text("Title\nNeedle here\nneedle again\n")
+
+    assert filesystem.search_code("needle", "README.md") == [
+        {"file": "README.md", "line": 2, "content": "Needle here"},
+        {"file": "README.md", "line": 3, "content": "needle again"},
+    ]
+
+
 def test_list_files_rejects_non_directory(workspace):
     (workspace / "file.txt").write_text("hello")
 
@@ -297,9 +306,54 @@ def test_write_file_does_not_overwrite(workspace, monkeypatch):
     target.write_text("Originale")
 
     with pytest.raises(FileExistsError):
-        filesystem.write_file("hello.txt", "Nuovo contenuto")
+        filesystem.write_file("hello.txt", "New content")
 
     assert target.read_text() == "Originale"
+
+
+def test_edit_file_replaces_unique_text_and_creates_backup(workspace):
+    target = workspace / "README.md"
+    target.write_text("# Guide\n\nOld section\n")
+
+    result = filesystem.edit_file(
+        "README.md",
+        "Old section",
+        "New section",
+    )
+
+    assert result["ok"] is True
+    assert result["path"] == "README.md"
+    assert result["changed"] is True
+    assert isinstance(result["backup"], str)
+    assert target.read_text() == "# Guide\n\nNew section\n"
+    assert (workspace / result["backup"]).read_text() == "# Guide\n\nOld section\n"
+
+
+def test_edit_file_rejects_non_unique_text(workspace):
+    target = workspace / "README.md"
+    target.write_text("Repeat\n\nRepeat\n")
+
+    with pytest.raises(ValueError, match="exactly once"):
+        filesystem.edit_file("README.md", "Repeat", "Updated")
+
+    assert target.read_text() == "Repeat\n\nRepeat\n"
+    assert not (workspace / ".agent_backups").exists()
+
+
+def test_edit_file_noop_does_not_create_backup(workspace):
+    target = workspace / "README.md"
+    target.write_text("Existing section\n")
+
+    result = filesystem.edit_file(
+        "README.md",
+        "Existing section",
+        "Existing section",
+    )
+
+    assert result["changed"] is False
+    assert result["backup"] is None
+    assert target.read_text() == "Existing section\n"
+    assert not (workspace / ".agent_backups").exists()
 
 
 def test_write_file_rejects_oversized_content(workspace, monkeypatch):

@@ -7,9 +7,13 @@ import posixpath
 
 
 def validate_plan_paths(plan: TaskPlan) -> None:
-    path_tools = {
+    required_path_tools = {
         "read_workspace_file",
         "write_workspace_file",
+        "edit_workspace_file",
+    }
+    optional_path_tools = {
+        "search_workspace_code",
     }
 
     for criterion in plan.criteria:
@@ -23,19 +27,32 @@ def validate_plan_paths(plan: TaskPlan) -> None:
         if len(criterion_keys) != len(set(criterion_keys)):
             raise ValueError("Duplicate tool and path criteria")
 
-        if criterion.required_tool in path_tools:
-            if not path:
-                raise ValueError(f"Missing required path: {criterion.criterion_id}")
+        if criterion.required_tool in required_path_tools and not path:
+            raise ValueError(f"Missing required path: {criterion.criterion_id}")
+
+        if criterion.required_tool in required_path_tools | optional_path_tools:
+            if path is None:
+                continue
 
             if len(path) > 500:
                 raise ValueError("Required path exceeds 500 characters")
 
-            if path.startswith("/") or "\\" in path:
+            if not path or path.startswith("/") or "\\" in path:
                 raise ValueError(f"Invalid required path: {path}")
+
+            parts = path.split("/")
+            if any(part in ("", "..") for part in parts):
+                raise ValueError(f"Invalid workspace path: {path}")
 
             normalized = posixpath.normpath(path)
 
-            if normalized in (".", "..") or normalized.startswith("../"):
+            if (
+                criterion.required_tool in required_path_tools
+                and normalized == "."
+            ):
+                raise ValueError(f"Missing required path: {criterion.criterion_id}")
+
+            if normalized == ".." or normalized.startswith("../"):
                 raise ValueError(f"Invalid workspace path: {path}")
 
         elif path is not None:
@@ -50,109 +67,137 @@ ALLOWED_TOOLS = {
     "read_workspace_file",
     "search_workspace_code",
     "write_workspace_file",
+    "edit_workspace_file",
 }
 SANDBOX_TOOL = "run_workspace_checks"
 
 PLANNER_SYSTEM_PROMPT = """
-Sei il Planner di un coding agent locale.
+You are the Planner for a local coding agent.
 
-Il tuo unico compito è trasformare la richiesta dell'utente
-in un piano di lavoro strutturato.
+Your only task is to turn the user's request into a structured work plan.
 
-Non eseguire operazioni.
-Non inventare risultati.
-Non dichiarare attività già completate.
+Do not perform operations.
+Do not invent results.
+Do not claim that tasks have already been completed.
 
-Restituisci esclusivamente un oggetto JSON con questa struttura:
+Return only a JSON object with this structure:
 
 {
   "criteria": [
     {
-      "criterion_id": "identificatore_univoco",
-      "description": "Descrizione del requisito",
-      "required_tool": "nome_strumento",
+      "criterion_id": "unique_identifier",
+      "description": "Requirement description",
+      "required_tool": "tool_name",
       "required_path": null
     }
   ]
 }
 
-STRUMENTI DISPONIBILI:
+AVAILABLE TOOLS:
 
 - list_workspace_files:
-  Elenca i file del workspace.
+  Lists files in the workspace.
 
 - read_workspace_file:
-  Legge il contenuto di un file.
-  Richiede required_path con il percorso relativo del file.
+  Reads a file.
+  Requires required_path to contain the file's relative path.
 
 - search_workspace_code:
-  Cerca una stringa nel codice.
+  Searches for a string in the code. It can receive required_path with
+  the file or directory to search; if omitted, it searches the entire workspace.
+  Do not use it to read or analyze the complete contents of a file.
 
 - write_workspace_file:
-  Crea o modifica un file nel workspace.
-  Richiede required_path con il percorso relativo del file.
-  Può essere usato esclusivamente quando l'utente
-  richiede esplicitamente una modifica.
+  Creates a file or replaces its entire contents.
+  Requires required_path to contain the file's relative path.
+  Use it only when the user requests creating a file or replacing it fully.
+
+- edit_workspace_file:
+  Makes a precise text replacement in an existing file.
+  Requires required_path with the file's relative path.
+  old_text must match exactly once. Use equal old_text and new_text when
+  the requested conditional change is not needed.
 
 {{SANDBOX_TOOL_INSTRUCTIONS}}
 
-REGOLE:
+RULES:
 
-1. Crea un criterio per ogni risultato operativo richiesto.
-2. Non creare criteri per operazioni non richieste.
-3. Usa esclusivamente gli strumenti disponibili.
-4. Per leggere un file, specifica sempre required_path.
-5. Usa percorsi relativi al workspace.
-6. Gli identificatori dei criteri devono essere univoci.
-7. Non aggiungere testo fuori dal JSON.
-8. Non proporre modifiche ai file se l'utente
-   chiede soltanto analisi, spiegazioni o lettura.
-9. Per ogni modifica richiesta, specifica il percorso
-   del file da modificare.
-10. Usa run_workspace_checks soltanto se l'utente chiede
-    esplicitamente di eseguire test o controlli.
+1. Create one criterion for each requested operational outcome.
+2. Do not create criteria for operations that were not requested.
+3. Use only the available tools.
+4. Always specify required_path when reading or writing a file.
+5. If a search is limited to a file or directory, specify required_path;
+   otherwise, it may be null.
+6. If the user asks to analyze a specific file, use read_workspace_file,
+   not search_workspace_code.
+7. If the user asks to add or correct content based on a file's contents,
+   plan to read the file first, then use edit_workspace_file on that file.
+8. Use paths relative to the workspace.
+9. Criterion identifiers must be unique.
+10. Do not add any text outside the JSON.
+11. Do not propose file changes if the user only asks for analysis,
+    explanations, or reading.
+12. Specify the path of every file to be changed. Prefer
+    edit_workspace_file for changes to existing files.
+13. Use run_workspace_checks only when the user explicitly asks to run
+    tests or checks.
+14. For a requested new document, describe its purpose and requested topics
+    in the criterion; do not include the full document text in the plan.
 """
 
 REVIEWER_SYSTEM_PROMPT = """
-Sei il Reviewer di un coding agent locale.
+You are the Reviewer for a local coding agent.
 
-Devi verificare se un piano di lavoro soddisfa integralmente
-la richiesta originale dell'utente.
+Determine whether a work plan fully satisfies the user's original request.
 
-Riceverai:
-- la richiesta originale;
-- il piano proposto.
+You will receive:
+- the original request;
+- the proposed plan.
 
-Controlla che:
-1. Ogni risultato operativo richiesto sia rappresentato.
-2. Non manchino operazioni necessarie.
-3. Gli strumenti scelti siano coerenti con le operazioni.
-4. I percorsi dei file siano corretti quando specificati.
-5. Non siano presenti operazioni non richieste.
-6. write_workspace_file sia presente soltanto quando
-   l'utente richiede esplicitamente una modifica.
-7. Ogni operazione di scrittura abbia un percorso preciso.
-8. run_workspace_checks sia incluso soltanto quando l'utente
-   chiede esplicitamente di eseguire test o controlli.
+Evaluate the plan as a sequence of future actions; do not require the
+analysis or changes to have already been performed.
 
-Restituisci esclusivamente JSON:
+Plans describe operations using a criterion description, tool, and path.
+The agent produces file contents when it executes the authorized write tool.
+Do not require the plan to contain a draft, full text, or detailed prose for
+a file it is supposed to create.
+
+Check that:
+1. Every requested operational outcome is represented.
+2. No necessary operations are missing.
+3. The selected tools match the operations.
+4. File paths are correct when specified.
+5. No unrequested operations are included.
+6. When the user asks to add or correct a file based on its contents,
+   the plan includes reading the file before editing that same file.
+7. edit_workspace_file and write_workspace_file are included only when
+   the user explicitly requests a change, including a change conditional
+   on the analysis.
+8. Every write operation has a specific path.
+9. run_workspace_checks is included only when the user explicitly asks
+   to run tests or checks.
+10. A criterion that identifies the requested document purpose and topics,
+    the write tool, and the target path is sufficient; do not request the
+    document body in the plan.
+
+Return JSON only:
 
 {
   "approved": true,
   "issues": []
 }
 
-Se il piano è incompleto:
+If the plan is incomplete:
 
 {
   "approved": false,
   "issues": [
-    "Descrizione del requisito mancante"
+    "Description of the missing requirement"
   ]
 }
 
-Non inventare informazioni.
-Non approvare piani incompleti.
+Do not invent information.
+Do not approve incomplete plans.
 """
 
 
@@ -177,13 +222,13 @@ class TaskPlanner:
             self.allowed_tools.add(SANDBOX_TOOL)
             sandbox_instructions = (
                 "- run_workspace_checks:\n"
-                "  Esegue pytest senza argomenti e un controllo statico "
-                "Python nel sandbox isolato.\n"
-                "  Non accetta comandi personalizzati; richiede required_path null."
+                "  Runs pytest without arguments and a static Python "
+                "syntax check in the isolated sandbox.\n"
+                "  Accepts no custom commands; required_path must be null."
             )
         else:
             sandbox_instructions = (
-                "run_workspace_checks non è disponibile in questa istanza."
+                "run_workspace_checks is not available in this instance."
             )
 
         self.system_prompt = PLANNER_SYSTEM_PROMPT.replace(
@@ -205,8 +250,8 @@ class TaskPlanner:
                 {
                     "role": "user",
                     "content": (
-                        f"RICHIESTA ORIGINALE:\n{goal}\n\n"
-                        f"PIANO PROPOSTO:\n"
+                        f"ORIGINAL REQUEST:\n{goal}\n\n"
+                        f"PROPOSED PLAN:\n"
                         f"{json.dumps(plan.model_dump(), ensure_ascii=False, indent=2)}"
                     ),
                 },
@@ -227,7 +272,7 @@ class TaskPlanner:
         return PlanReview.model_validate(data)
 
     async def create_plan(self, goal: str) -> TaskPlan:
-        max_attempts = 3  # Piano iniziale + 2 revisioni
+        max_attempts = 3  # Initial plan plus two revisions
         feedback = None
 
         for attempt in range(max_attempts):
@@ -235,9 +280,9 @@ class TaskPlanner:
 
             if feedback:
                 user_content += (
-                    "\n\nREVISIONE DEL PIANO PRECEDENTE:\n"
+                    "\n\nREVIEW OF THE PREVIOUS PLAN:\n"
                     + "\n".join(f"- {issue}" for issue in feedback)
-                    + "\n\nCorreggi il piano tenendo conto di queste indicazioni."
+                    + "\n\nRevise the plan to address this feedback."
                 )
 
             result = await self.provider.complete(
@@ -287,10 +332,11 @@ class TaskPlanner:
                 return plan
 
             feedback = review.issues or [
-                "Il piano non è stato approvato. "
-                "Rivedi la copertura della richiesta originale."
+                "The plan was not approved. "
+                "Review its coverage of the original request."
             ]
 
         raise ValueError(
-            "Planner could not produce an approved plan " "after 2 revisions"
+            "Planner could not produce an approved plan after 2 revisions. "
+            "Last reviewer feedback: " + "; ".join(feedback or [])
         )

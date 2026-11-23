@@ -10,8 +10,8 @@ from agent.schemas.tasks import TaskState
 
 TaskStatus = Literal["in_progress", "completed", "blocked", "interrupted"]
 INTERRUPTED_MESSAGE = (
-    "Processo terminato durante l'esecuzione. "
-    "Verificare le operazioni effettuate prima di qualsiasi ripresa."
+    "Process terminated during execution. "
+    "Verify completed operations before resuming."
 )
 
 
@@ -240,8 +240,8 @@ class TaskRepository:
     def mark_pending_operations_uncertain(self) -> int:
         now = datetime.now(timezone.utc).isoformat()
         message = (
-            "Processo terminato durante l'operazione: "
-            "l'esito non può essere determinato automaticamente."
+            "Process terminated during the operation; "
+            "the outcome cannot be determined automatically."
         )
 
         with self._connect() as connection:
@@ -273,7 +273,7 @@ class TaskRepository:
             if table is None:
                 self._create_tasks_table(connection)
             elif "'interrupted'" not in table["sql"]:
-                # Migrazione atomica: conserva tutte le attività esistenti.
+                # Atomic migration: preserve all existing tasks.
                 connection.execute("BEGIN IMMEDIATE")
                 connection.execute(
                     "ALTER TABLE tasks RENAME TO tasks_legacy"
@@ -381,7 +381,10 @@ class TaskRepository:
             ).fetchall()
 
             if any(
-                operation["tool"] == "write_workspace_file"
+                operation["tool"] in {
+                    "write_workspace_file",
+                    "edit_workspace_file",
+                }
                 and operation["status"] == "uncertain"
                 for operation in operations
             ):

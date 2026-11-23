@@ -6,6 +6,7 @@ from agent.tools.filesystem import (
     list_files,
     read_file,
     search_code,
+    edit_file,
     write_file,
 )
 
@@ -14,15 +15,18 @@ from agent.schemas.tools import (
     ReadFileArgs,
     SearchCodeArgs,
     RunWorkspaceChecksArgs,
+    EditFileArgs,
     WriteFileArgs,
 )
+
+MAX_TOOL_ARGUMENT_CHARS = 6_000_000
 
 TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
             "name": "list_workspace_files",
-            "description": "Elenca i file presenti nel workspace.",
+            "description": "Lists files in the workspace.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -37,7 +41,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "read_workspace_file",
-            "description": "Legge un file nel workspace.",
+            "description": "Reads a file in the workspace.",
             "parameters": {
                 "type": "object",
                 "properties": {"path": {"type": "string"}},
@@ -50,7 +54,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_workspace_code",
-            "description": "Cerca una stringa nei file del workspace.",
+            "description": "Searches for a string in workspace files.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -68,8 +72,8 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "run_workspace_checks",
             "description": (
-                "Esegue nel sandbox pytest senza argomenti e un controllo "
-                "statico della sintassi Python. Non accetta comandi o parametri."
+                "Runs pytest without arguments and a static Python syntax "
+                "check in the sandbox. Accepts no commands or parameters."
             ),
             "parameters": {
                 "type": "object",
@@ -81,11 +85,33 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "edit_workspace_file",
+            "description": (
+                "Makes a precise text replacement in an existing workspace "
+                "file. The old_text must occur exactly once. Creates a backup "
+                "before changing the file. Set old_text and new_text equal "
+                "when no change is needed."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "old_text": {"type": "string"},
+                    "new_text": {"type": "string"},
+                },
+                "required": ["path", "old_text", "new_text"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "write_workspace_file",
             "description": (
-                "Crea un file nel workspace oppure lo sovrascrive "
-                "se overwrite è true. Prima della sovrascrittura "
-                "crea un backup del contenuto originale."
+                "Creates a file in the workspace or overwrites it when "
+                "overwrite is true. Before overwriting, creates a backup "
+                "of the original contents."
             ),
             "parameters": {
                 "type": "object",
@@ -107,7 +133,7 @@ def execute_tool(name: str, arguments: str) -> str:
         if name not in TOOL_DEFINITIONS_BY_NAME:
             raise ValueError(f"Tool not allowed: {name}")
 
-        if len(arguments) > 10_000:
+        if len(arguments) > MAX_TOOL_ARGUMENT_CHARS:
             raise ValueError("Tool arguments too large")
 
         args = json.loads(arguments)
@@ -148,6 +174,13 @@ def execute_tool(name: str, arguments: str) -> str:
                 overwrite=values["overwrite"],
             )
 
+        elif name == "edit_workspace_file":
+            result = function(
+                relative_path=values["path"],
+                old_text=values["old_text"],
+                new_text=values["new_text"],
+            )
+
         return json.dumps(
             {"ok": True, "result": result},
             ensure_ascii=False,
@@ -176,5 +209,6 @@ TOOL_DEFINITIONS_BY_NAME = {
     "read_workspace_file": (ReadFileArgs, read_file),
     "search_workspace_code": (SearchCodeArgs, search_code),
     "write_workspace_file": (WriteFileArgs, write_file),
+    "edit_workspace_file": (EditFileArgs, edit_file),
     "run_workspace_checks": (RunWorkspaceChecksArgs, None),
 }

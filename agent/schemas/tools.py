@@ -29,5 +29,11 @@ class WriteFileArgs(ToolArguments):
     overwrite: bool = False
 
 
+class EditFileArgs(ToolArguments):
+    path: str = Field(min_length=1, max_length=500)
+    old_text: str = Field(min_length=1, max_length=20_000)
+    new_text: str = Field(max_length=20_000)
+
+
 class RunWorkspaceChecksArgs(ToolArguments):
     pass

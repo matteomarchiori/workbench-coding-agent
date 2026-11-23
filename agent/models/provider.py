@@ -17,7 +17,16 @@ class ModelProvider:
             "Qwen/Qwen3-8B-MLX-4bit",
         )
         self.timeout = float(os.getenv("MODEL_TIMEOUT_SECONDS", "180"))
+        self.write_timeout = float(os.getenv("MODEL_WRITE_TIMEOUT_SECONDS", "600"))
         self.max_retries = int(os.getenv("MODEL_MAX_RETRIES", "2"))
+        try:
+            self.write_max_tokens = int(
+                os.getenv("MODEL_WRITE_MAX_TOKENS", "4096")
+            )
+        except ValueError as exc:
+            raise ValueError(
+                "MODEL_WRITE_MAX_TOKENS must be an integer"
+            ) from exc
         self._request_count = 0
         self._success_count = 0
         self._error_count = 0
@@ -28,8 +37,16 @@ class ModelProvider:
         if not 1 <= self.timeout <= 600:
             raise ValueError("MODEL_TIMEOUT_SECONDS must be between 1 and 600")
 
+        if not 1 <= self.write_timeout <= 600:
+            raise ValueError(
+                "MODEL_WRITE_TIMEOUT_SECONDS must be between 1 and 600"
+            )
+
         if not 0 <= self.max_retries <= 3:
             raise ValueError("MODEL_MAX_RETRIES must be between 0 and 3")
+
+        if not 1500 <= self.write_max_tokens <= 8192:
+            raise ValueError("MODEL_WRITE_MAX_TOKENS must be between 1500 and 8192")
 
     async def health_check(self) -> bool:
         try:
@@ -85,12 +102,19 @@ class ModelProvider:
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
     ) -> dict:
+        write_tool_names = {"write_workspace_file", "edit_workspace_file"}
+        includes_write_tool = tools is not None and any(
+            isinstance(tool, dict)
+            and isinstance(tool.get("function"), dict)
+            and tool["function"].get("name") in write_tool_names
+            for tool in tools
+        )
         payload = {
             "model": self.model,
             "messages": messages,
             "temperature": 0.7,
             "top_p": 0.8,
-            "max_tokens": 1500,
+            "max_tokens": self.write_max_tokens if includes_write_tool else 1500,
             "chat_template_kwargs": {"enable_thinking": False},
         }
 
@@ -98,13 +122,14 @@ class ModelProvider:
             payload["tools"] = tools
             payload["tool_choice"] = tool_choice or "auto"
 
+        request_timeout = self.write_timeout if includes_write_tool else self.timeout
         retryable_statuses = {429, 500, 502, 503, 504}
         result = None
 
         for attempt in range(self.max_retries + 1):
             self._attempt_count += 1
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with httpx.AsyncClient(timeout=request_timeout) as client:
                     response = await client.post(
                         f"{self.base_url}/chat/completions",
                         json=payload,

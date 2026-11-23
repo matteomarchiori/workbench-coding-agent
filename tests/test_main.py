@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 import agent.main as main
@@ -26,10 +27,10 @@ class FakeOrchestrator:
     async def run(self, message, task=None):
         task = task or TaskState(goal=message)
         task.status = "completed"
-        task.final_response = "Completata"
-        task.complete("Completata")
+        task.final_response = "Completed"
+        task.complete("Completed")
         return {
-            "response": "Completata",
+            "response": "Completed",
             "model": "fake-model",
             "iterations": 1,
             "tool_calls": 0,
@@ -40,7 +41,7 @@ class FakeOrchestrator:
 
 def test_operations_endpoint_and_delete(tmp_path, monkeypatch):
     repository = TaskRepository(tmp_path / "api.db")
-    task = TaskState(goal="Leggi result.txt")
+    task = TaskState(goal="Read result.txt")
     repository.save(task)
     repository.begin_operation(
         task.task_id,
@@ -68,7 +69,7 @@ def test_operations_endpoint_and_delete(tmp_path, monkeypatch):
 
 def test_resume_rejects_non_interrupted_task(tmp_path, monkeypatch):
     repository = TaskRepository(tmp_path / "resume.db")
-    task = TaskState(goal="Leggi result.txt")
+    task = TaskState(goal="Read result.txt")
     task.status = "blocked"
     repository.save(task)
 
@@ -82,16 +83,26 @@ def test_resume_rejects_non_interrupted_task(tmp_path, monkeypatch):
     assert "interrupted" in response.json()["detail"]
 
 
-def test_resume_rejects_uncertain_write(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "tool, arguments",
+    [
+        ("write_workspace_file", '{"path":"result.txt","content":"test"}'),
+        (
+            "edit_workspace_file",
+            '{"path":"result.txt","old_text":"old","new_text":"new"}',
+        ),
+    ],
+)
+def test_resume_rejects_uncertain_write(tmp_path, monkeypatch, tool, arguments):
     repository = TaskRepository(tmp_path / "resume-write.db")
-    task = TaskState(goal="Modifica result.txt")
+    task = TaskState(goal="Modify result.txt")
     repository.save(task)
     repository.begin_operation(
         task.task_id,
         "call_write",
         1,
-        "write_workspace_file",
-        '{"path":"result.txt","content":"test"}',
+        tool,
+        arguments,
     )
     repository.mark_pending_operations_uncertain()
     task.status = "interrupted"
@@ -109,7 +120,7 @@ def test_resume_rejects_uncertain_write(tmp_path, monkeypatch):
 
 def test_resume_preserves_task_and_evidence(tmp_path, monkeypatch):
     repository = TaskRepository(tmp_path / "resume-same-task.db")
-    task = TaskState(goal="Leggi result.txt")
+    task = TaskState(goal="Read result.txt")
     task.status = "interrupted"
     repository.save(task)
 
@@ -119,7 +130,7 @@ def test_resume_preserves_task_and_evidence(tmp_path, monkeypatch):
         async def run(self, message, task=None):
             self.received_task = task
             return {
-                "response": "Completata",
+                "response": "Completed",
                 "model": "fake-model",
                 "iterations": task.iteration,
                 "tool_calls": task.tool_calls,
@@ -142,7 +153,7 @@ def test_resume_preserves_task_and_evidence(tmp_path, monkeypatch):
 
 def test_startup_marks_pending_work_interrupted(tmp_path, monkeypatch):
     repository = TaskRepository(tmp_path / "startup-recovery.db")
-    task = TaskState(goal="Leggi result.txt")
+    task = TaskState(goal="Read result.txt")
     repository.save(task)
     repository.begin_operation(
         task.task_id,
@@ -163,7 +174,7 @@ def test_startup_marks_pending_work_interrupted(tmp_path, monkeypatch):
 
 def test_metrics_endpoint_reports_repository_counts(tmp_path, monkeypatch):
     repository = TaskRepository(tmp_path / "metrics-api.db")
-    task = TaskState(goal="Leggi result.txt")
+    task = TaskState(goal="Read result.txt")
     repository.save(task)
     monkeypatch.setattr(main, "repository", repository)
 
@@ -180,11 +191,11 @@ def test_startup_retention_is_opt_in_and_preserves_uncertain_tasks(
     monkeypatch,
 ):
     repository = TaskRepository(tmp_path / "retention-startup.db")
-    expired = TaskState(goal="Completata")
+    expired = TaskState(goal="Completed")
     expired.status = "completed"
     repository.save(expired)
 
-    uncertain = TaskState(goal="Scrittura interrotta")
+    uncertain = TaskState(goal="Interrupted write")
     uncertain.status = "interrupted"
     repository.save(uncertain)
     repository.begin_operation(
