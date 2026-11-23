@@ -1,0 +1,61 @@
+{
+  "name": "workbench-coding-agent",
+  "displayName": "Workbench Coding Agent",
+  "description": "Run the local Workbench Coding Agent against the open VS Code project.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/matteomarchiori/workbench-coding-agent"
+  },
+  "publisher": "matteomarchiori",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:workbenchAgent.run"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "workbenchAgent.run",
+        "title": "Workbench: Run on Current Project"
+      }
+    ],
+    "configuration": {
+      "title": "Workbench Coding Agent",
+      "properties": {
+        "workbenchAgent.backendPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the Workbench Coding Agent repository."
+        },
+        "workbenchAgent.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Python executable for the agent API. Defaults to the backend's .venv."
+        },
+        "workbenchAgent.modelBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8000/v1",
+          "description": "OpenAI-compatible model server URL."
+        },
+        "workbenchAgent.modelName": {
+          "type": "string",
+          "default": "Qwen/Qwen3-8B-MLX-4bit",
+          "description": "Model name sent to the model server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^4.1.1"
+  }
+}

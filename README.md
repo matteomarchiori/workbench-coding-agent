@@ -59,6 +59,31 @@ DATABASE_PATH="$PWD/data/workbench.db" \
 
 The API documentation is available at `http://127.0.0.1:8001/docs`.
 
+## VS Code extension
+
+To invoke the agent from another VS Code project without using this
+repository's `workspace/` folder, package and install the extension:
+
+```bash
+cd vscode-extension
+npm install
+npm run package
+```
+
+In VS Code, use **Extensions: Install from VSIX...** to install
+`vscode-extension/workbench-coding-agent-0.1.0.vsix`. Set the User setting
+`workbenchAgent.backendPath` to the absolute path of this repository. By
+default, the extension uses its `.venv` Python and the MLX model server at
+`http://127.0.0.1:8000/v1`; start that model server separately.
+
+Open the target project in VS Code, run **Workbench: Run on Current Project**
+from the Command Palette, and enter a goal. The extension starts a local API
+bound only to loopback with the selected project as its workspace root, shows
+the plan and result in the Output channel, then stops the API. Task data is
+stored in VS Code's global storage, not in the project or the Workbench
+repository's `workspace/` directory. This uses `/agent/run`, which plans and
+then executes the task.
+
 ## Docker Compose
 
 ```bash
