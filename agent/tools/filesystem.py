@@ -174,7 +174,7 @@ def _atomic_create_file(
             os.close(fd)
 
     try:
-        # Crea il nome definitivo senza sovrascrivere file esistenti.
+        # Create the final name without overwriting existing files.
         os.link(
             temporary_name,
             name,
@@ -331,6 +331,72 @@ def write_file(
             "path": relative_path,
             "created": False,
             "overwritten": True,
+            "backup": backup_path,
+        }
+
+    finally:
+        os.close(parent_fd)
+
+
+def edit_file(
+    relative_path: str,
+    old_text: str,
+    new_text: str,
+) -> dict:
+    if not isinstance(old_text, str) or not old_text:
+        raise ValueError("Text to replace cannot be empty")
+
+    if not isinstance(new_text, str):
+        raise ValueError("Replacement text must be a string")
+
+    if len(old_text.encode("utf-8")) > MAX_FILE_BYTES:
+        raise ValueError("Text to replace exceeds 1 MB limit")
+
+    if len(new_text.encode("utf-8")) > MAX_FILE_BYTES:
+        raise ValueError("Replacement text exceeds 1 MB limit")
+
+    parent_fd, filename = _open_parent_directory(relative_path)
+
+    try:
+        original_bytes = _read_regular_file_bytes(filename, parent_fd)
+
+        try:
+            original_text = original_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("File is not valid UTF-8 text") from exc
+
+        occurrences = original_text.count(old_text)
+        if occurrences != 1:
+            raise ValueError(
+                "Text to replace must match exactly once; "
+                f"found {occurrences} matches"
+            )
+
+        if old_text == new_text:
+            return {
+                "ok": True,
+                "path": relative_path,
+                "changed": False,
+                "backup": None,
+            }
+
+        updated_text = original_text.replace(old_text, new_text, 1)
+        updated_bytes = updated_text.encode("utf-8")
+
+        if len(updated_bytes) > MAX_FILE_BYTES:
+            raise ValueError("File exceeds 1 MB limit")
+
+        backup_path = _create_backup(relative_path, original_bytes)
+
+        if _read_regular_file_bytes(filename, parent_fd) != original_bytes:
+            raise RuntimeError("File changed during edit; replacement aborted")
+
+        _atomic_replace_file(filename, parent_fd, updated_bytes)
+
+        return {
+            "ok": True,
+            "path": relative_path,
+            "changed": True,
             "backup": backup_path,
         }
 
@@ -496,6 +562,36 @@ def search_code(
 
     if Path(relative_path).is_absolute() or ".." in parts:
         raise ValueError("Invalid directory path")
+
+    if parts and relative_path not in ("", "."):
+        parent_fd, filename = _open_parent_directory(relative_path)
+
+        try:
+            info = os.stat(
+                filename,
+                dir_fd=parent_fd,
+                follow_symlinks=False,
+            )
+
+            if stat.S_ISREG(info.st_mode):
+                if info.st_size > MAX_FILE_BYTES:
+                    return []
+
+                content = _read_regular_file(filename, parent_fd)
+                return [
+                    {
+                        "file": Path(relative_path).as_posix(),
+                        "line": line_number,
+                        "content": line.strip()[:500],
+                    }
+                    for line_number, line in enumerate(content.splitlines(), 1)
+                    if query.casefold() in line.casefold()
+                ][:limit]
+
+            if stat.S_ISLNK(info.st_mode):
+                raise ValueError("Symbolic links are not allowed")
+        finally:
+            os.close(parent_fd)
 
     root_fd = _open_workspace()
     current_fd = root_fd

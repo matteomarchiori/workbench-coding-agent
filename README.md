@@ -13,7 +13,8 @@ OpenAI-compatible model, which can run locally with MLX.
   - list files;
   - read files;
   - search source code;
-  - create or overwrite files with backups.
+  - create or overwrite files with backups;
+  - make precise, backed-up text edits to existing files.
 - SQLite persistence for tasks and tool-call results.
 - Automatic recovery of tasks and operations interrupted by a restart.
 - Explicit resume for interrupted tasks without uncertain writes.
@@ -50,7 +51,9 @@ MODEL_BASE_URL=http://127.0.0.1:8000/v1 \
 MODEL_NAME=Qwen/Qwen3-8B-MLX-4bit \
 SANDBOX_ENABLED=false \
 MODEL_TIMEOUT_SECONDS=180 \
+MODEL_WRITE_TIMEOUT_SECONDS=600 \
 MODEL_MAX_RETRIES=2 \
+MODEL_WRITE_MAX_TOKENS=4096 \
 TASK_RETENTION_DAYS=0 \
 WORKSPACE="$PWD/workspace" \
 DATABASE_PATH="$PWD/data/workbench.db" \
@@ -214,8 +217,13 @@ workspace tools are relative to that root.
 ## Configuration and limits
 
 The local API example above sets `MODEL_TIMEOUT_SECONDS=180`,
-`MODEL_MAX_RETRIES=2`, and `TASK_RETENTION_DAYS=0`. Supported ranges are
-1-600 seconds for the model timeout, 0-3 retries, and 0-3650 days for retention.
+`MODEL_WRITE_TIMEOUT_SECONDS=600`, `MODEL_MAX_RETRIES=2`,
+`MODEL_WRITE_MAX_TOKENS=4096`, and
+`TASK_RETENTION_DAYS=0`. Supported ranges are 1-600 seconds for the model
+timeout, 1-600 seconds for file-writing calls, 0-3 retries, 1500-8192 tokens
+for file-writing calls, and 0-3650 days for retention. File-writing calls use
+the longer timeout and larger token limit because they include the complete
+file content in the tool arguments.
 Retention value `0` disables automatic cleanup. In Compose, the model server
 must be reachable from the agent container at
 `host.containers.internal:8000`; the sandbox is enabled and requires a
@@ -280,6 +288,8 @@ model-server/start.sh     MLX model-server startup
 - Every new tool needs a Pydantic schema, an OpenAI-compatible definition,
   planner and runtime authorization, acceptance-criterion validation, and
   persistent journaling.
+- Prefer `edit_workspace_file` for focused changes to an existing file; it
+  replaces one unique text fragment and creates a backup.
 - An uncertain result must never be treated as a success.
 - Writes must be atomic and have a recovery strategy.
 - New persisted state requires a backward-compatible SQLite schema migration.
@@ -328,3 +338,7 @@ check before starting.
 ## License
 
 Workbench Coding Agent is licensed under the [MIT License](LICENSE).
+
+## Contributing
+
+Contributions are welcome! Please read the [CONTRIBUTING.md](CONTRIBUTING.md) file for guidelines on how to contribute to this project.

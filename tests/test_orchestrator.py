@@ -20,7 +20,7 @@ def test_orchestrator_does_not_execute_tools_when_planner_fails():
     )
 
     with patch("agent.orchestrator.execute_tool") as mock_execute:
-        result = asyncio.run(orchestrator.run("Modifica README.md"))
+        result = asyncio.run(orchestrator.run("Modify README.md"))
 
     assert result["iterations"] == 0
     assert result["tool_calls"] == 0
@@ -29,7 +29,7 @@ def test_orchestrator_does_not_execute_tools_when_planner_fails():
     assert mock_execute.call_count == 0
 
 
-def test_orchestrator_blocks_tool_not_authorized_by_plan():
+def test_orchestrator_recovers_from_tool_not_authorized_by_plan():
     provider = FakeProvider()
     orchestrator = AgentOrchestrator(provider)
 
@@ -37,7 +37,7 @@ def test_orchestrator_blocks_tool_not_authorized_by_plan():
         criteria=[
             AcceptanceCriterion(
                 criterion_id="read_readme",
-                description="Leggi README.md",
+                description="Read README.md",
                 required_tool="read_workspace_file",
                 required_path="README.md",
             )
@@ -47,36 +47,77 @@ def test_orchestrator_blocks_tool_not_authorized_by_plan():
     orchestrator.planner.create_plan = AsyncMock(return_value=plan)
 
     provider.complete = AsyncMock(
-        return_value={
-            "finish_reason": "tool_calls",
-            "message": {
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": "call_123",
-                        "type": "function",
-                        "function": {
-                            "name": "write_workspace_file",
-                            "arguments": (
-                                '{"path":"README.md",'
-                                '"content":"Modifica non autorizzata",'
-                                '"overwrite":false}'
-                            ),
-                        },
-                    }
-                ],
+        side_effect=[
+            {
+                "finish_reason": "tool_calls",
+                "message": {
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_123",
+                            "type": "function",
+                            "function": {
+                                "name": "write_workspace_file",
+                                "arguments": (
+                                    '{"path":"README.md",'
+                                    '"content":"Unauthorized modification",'
+                                    '"overwrite":false}'
+                                ),
+                            },
+                        }
+                    ],
+                },
             },
-        }
+            {
+                "finish_reason": "tool_calls",
+                "message": {
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_124",
+                            "type": "function",
+                            "function": {
+                                "name": "read_workspace_file",
+                                "arguments": '{"path":"README.md"}',
+                            },
+                        }
+                    ],
+                },
+            },
+            {
+                "finish_reason": "stop",
+                "message": {
+                    "content": "I read README.md.",
+                    "tool_calls": [],
+                },
+            },
+        ]
     )
 
-    with patch("agent.orchestrator.execute_tool") as mock_execute:
-        result = asyncio.run(orchestrator.run("Leggi README.md"))
+    with patch(
+        "agent.orchestrator.execute_tool",
+        return_value=json.dumps({"ok": True, "result": "README content"}),
+    ) as mock_execute:
+        result = asyncio.run(orchestrator.run("Read README.md"))
 
-    assert result["task"].status == "blocked"
-    assert result["tool_calls"] == 0
-    assert result["trace"] == []
-    assert mock_execute.call_count == 0
-    assert any("not authorized" in error for error in result["task"].errors)
+    assert result["task"].status == "completed"
+    assert result["tool_calls"] == 1
+    assert [entry["tool"] for entry in result["trace"]] == [
+        "read_workspace_file",
+    ]
+    mock_execute.assert_called_once_with(
+        "read_workspace_file",
+        '{"path":"README.md"}',
+    )
+    supplied_tools = [
+        [tool["function"]["name"] for tool in call.kwargs["tools"]]
+        for call in provider.complete.await_args_list
+    ]
+    assert supplied_tools == [
+        ["read_workspace_file"],
+        ["read_workspace_file"],
+        [],
+    ]
 
 
 import pytest
@@ -99,7 +140,7 @@ def test_orchestrator_blocks_unauthorized_read_paths(path):
         criteria=[
             AcceptanceCriterion(
                 criterion_id="read_readme",
-                description="Leggi README.md",
+                description="Read README.md",
                 required_tool="read_workspace_file",
                 required_path="README.md",
             )
@@ -128,7 +169,7 @@ def test_orchestrator_blocks_unauthorized_read_paths(path):
     )
 
     with patch("agent.orchestrator.execute_tool") as mock_execute:
-        result = asyncio.run(orchestrator.run("Leggi README.md"))
+        result = asyncio.run(orchestrator.run("Read README.md"))
 
     assert result["task"].status == "blocked"
     assert result["tool_calls"] == 0
@@ -143,7 +184,7 @@ def test_orchestrator_completes_authorized_read():
         criteria=[
             AcceptanceCriterion(
                 criterion_id="read_result",
-                description="Leggi result.txt",
+                description="Read result.txt",
                 required_tool="read_workspace_file",
                 required_path="result.txt",
             )
@@ -173,7 +214,7 @@ def test_orchestrator_completes_authorized_read():
             {
                 "finish_reason": "stop",
                 "message": {
-                    "content": "Il file contiene il risultato atteso.",
+                    "content": "The file contains the expected result.",
                     "tool_calls": [],
                 },
             },
@@ -183,10 +224,10 @@ def test_orchestrator_completes_authorized_read():
     with patch(
         "agent.orchestrator.execute_tool",
         return_value=json.dumps(
-            {"ok": True, "result": "contenuto del file"}
+            {"ok": True, "result": "file contents"}
         ),
     ) as mock_execute:
-        result = asyncio.run(orchestrator.run("Leggi result.txt"))
+        result = asyncio.run(orchestrator.run("Read result.txt"))
 
     assert result["task"].status == "completed"
     assert result["tool_calls"] == 1
@@ -202,7 +243,7 @@ def test_orchestrator_does_not_complete_after_tool_failure():
         criteria=[
             AcceptanceCriterion(
                 criterion_id="read_result",
-                description="Leggi result.txt",
+                description="Read result.txt",
                 required_tool="read_workspace_file",
                 required_path="result.txt",
             )
@@ -231,7 +272,7 @@ def test_orchestrator_does_not_complete_after_tool_failure():
     premature_response = {
         "finish_reason": "stop",
         "message": {
-            "content": "Ho letto il file correttamente.",
+            "content": "I read the file successfully.",
             "tool_calls": [],
         },
     }
@@ -248,7 +289,7 @@ def test_orchestrator_does_not_complete_after_tool_failure():
             {"ok": False, "error": "File not found"}
         ),
     ) as mock_execute:
-        result = asyncio.run(orchestrator.run("Leggi result.txt"))
+        result = asyncio.run(orchestrator.run("Read result.txt"))
 
     assert result["task"].status == "blocked"
     assert result["tool_calls"] == 1
@@ -264,7 +305,7 @@ def test_orchestrator_blocks_when_provider_fails():
         criteria=[
             AcceptanceCriterion(
                 criterion_id="read_result",
-                description="Leggi result.txt",
+                description="Read result.txt",
                 required_tool="read_workspace_file",
                 required_path="result.txt",
             )
@@ -277,7 +318,7 @@ def test_orchestrator_blocks_when_provider_fails():
     )
 
     with patch("agent.orchestrator.execute_tool") as mock_execute:
-        result = asyncio.run(orchestrator.run("Leggi result.txt"))
+        result = asyncio.run(orchestrator.run("Read result.txt"))
 
     assert result["task"].status == "blocked"
     assert result["iterations"] == 1
@@ -285,6 +326,41 @@ def test_orchestrator_blocks_when_provider_fails():
     assert result["trace"] == []
     assert result["task"].errors
     assert mock_execute.call_count == 0
+
+
+def test_orchestrator_blocks_truncated_model_output_without_retry():
+    provider = FakeProvider()
+    orchestrator = AgentOrchestrator(provider)
+    orchestrator.planner.create_plan = AsyncMock(
+        return_value=TaskPlan(
+            criteria=[
+                AcceptanceCriterion(
+                    criterion_id="write_readme",
+                    description="Update README",
+                    required_tool="write_workspace_file",
+                    required_path="README.md",
+                )
+            ]
+        )
+    )
+    provider.complete = AsyncMock(
+        return_value={
+            "finish_reason": "length",
+            "message": {
+                "content": None,
+                "tool_calls": [],
+            },
+        }
+    )
+
+    with patch("agent.orchestrator.execute_tool") as mock_execute:
+        result = asyncio.run(orchestrator.run("Update README.md"))
+
+    assert result["task"].status == "blocked"
+    assert any("truncated at its token limit" in error for error in result["task"].errors)
+    assert provider.complete.await_count == 1
+    assert mock_execute.call_count == 0
+
 
 def test_orchestrator_handles_tool_exception():
     provider = FakeProvider()
@@ -294,7 +370,7 @@ def test_orchestrator_handles_tool_exception():
         criteria=[
             AcceptanceCriterion(
                 criterion_id="read_result",
-                description="Leggi result.txt",
+                description="Read result.txt",
                 required_tool="read_workspace_file",
                 required_path="result.txt",
             )
@@ -323,7 +399,7 @@ def test_orchestrator_handles_tool_exception():
     final_response = {
         "finish_reason": "stop",
         "message": {
-            "content": "Attività completata.",
+            "content": "Task completed.",
             "tool_calls": [],
         },
     }
@@ -336,7 +412,7 @@ def test_orchestrator_handles_tool_exception():
         "agent.orchestrator.execute_tool",
         side_effect=RuntimeError("Unexpected tool error"),
     ) as mock_execute:
-        result = asyncio.run(orchestrator.run("Leggi result.txt"))
+        result = asyncio.run(orchestrator.run("Read result.txt"))
 
     assert result["task"].status == "blocked"
     assert result["tool_calls"] == 1
@@ -345,7 +421,21 @@ def test_orchestrator_handles_tool_exception():
     assert not result["task"].plan.criteria[0].satisfied
     assert mock_execute.call_count == 1
 
-def test_orchestrator_journals_uncertain_tool_exception(tmp_path):
+@pytest.mark.parametrize(
+    "tool, arguments",
+    [
+        ("read_workspace_file", '{"path":"result.txt"}'),
+        (
+            "edit_workspace_file",
+            '{"path":"result.txt","old_text":"old","new_text":"new"}',
+        ),
+    ],
+)
+def test_orchestrator_journals_uncertain_tool_exception(
+    tmp_path,
+    tool,
+    arguments,
+):
     from agent.storage.repository import TaskRepository
 
     provider = FakeProvider()
@@ -355,9 +445,9 @@ def test_orchestrator_journals_uncertain_tool_exception(tmp_path):
     plan = TaskPlan(
         criteria=[
             AcceptanceCriterion(
-                criterion_id="read_result",
-                description="Leggi result.txt",
-                required_tool="read_workspace_file",
+                criterion_id="operation",
+                description="Perform the requested operation",
+                required_tool=tool,
                 required_path="result.txt",
             )
         ]
@@ -375,8 +465,8 @@ def test_orchestrator_journals_uncertain_tool_exception(tmp_path):
                         "id": "call_uncertain",
                         "type": "function",
                         "function": {
-                            "name": "read_workspace_file",
-                            "arguments": '{"path":"result.txt"}',
+                            "name": tool,
+                            "arguments": arguments,
                         },
                     }
                 ],
@@ -388,7 +478,7 @@ def test_orchestrator_journals_uncertain_tool_exception(tmp_path):
         "agent.orchestrator.execute_tool",
         side_effect=RuntimeError("Unexpected failure"),
     ):
-        result = asyncio.run(orchestrator.run("Leggi result.txt"))
+        result = asyncio.run(orchestrator.run("Read result.txt"))
 
     assert result["task"].status == "blocked"
 
@@ -406,12 +496,12 @@ def test_orchestrator_resumes_task_with_existing_evidence(tmp_path):
     provider = FakeProvider()
     repository = TaskRepository(tmp_path / "resume.db")
     orchestrator = AgentOrchestrator(provider, repository)
-    task = TaskState(goal="Leggi result.txt")
+    task = TaskState(goal="Read result.txt")
     task.plan = TaskPlan(
         criteria=[
             AcceptanceCriterion(
                 criterion_id="read_result",
-                description="Leggi result.txt",
+                description="Read result.txt",
                 required_tool="read_workspace_file",
                 required_path="result.txt",
             )
@@ -422,7 +512,7 @@ def test_orchestrator_resumes_task_with_existing_evidence(tmp_path):
         iteration=1,
         tool="read_workspace_file",
         arguments='{"path":"result.txt"}',
-        result={"ok": True, "result": "contenuto"},
+        result={"ok": True, "result": "content"},
         call_id="call_saved",
     )
     repository.save(task)
@@ -433,7 +523,7 @@ def test_orchestrator_resumes_task_with_existing_evidence(tmp_path):
         return_value={
             "finish_reason": "stop",
             "message": {
-                "content": "Il file contiene contenuto.",
+                "content": "The file contains content.",
                 "tool_calls": [],
             },
         }
@@ -458,12 +548,12 @@ def test_resume_reconciles_journal_operation_missing_from_task_state(tmp_path):
     from agent.storage.repository import TaskRepository
 
     repository = TaskRepository(tmp_path / "resume-reconcile.db")
-    task = TaskState(goal="Leggi result.txt")
+    task = TaskState(goal="Read result.txt")
     task.plan = TaskPlan(
         criteria=[
             AcceptanceCriterion(
                 criterion_id="read_result",
-                description="Leggi result.txt",
+                description="Read result.txt",
                 required_tool="read_workspace_file",
                 required_path="result.txt",
             )
@@ -482,7 +572,7 @@ def test_resume_reconciles_journal_operation_missing_from_task_state(tmp_path):
         task.task_id,
         "call_durable",
         "succeeded",
-        result={"ok": True, "result": "contenuto"},
+        result={"ok": True, "result": "content"},
     )
     repository.mark_interrupted()
 
@@ -507,7 +597,7 @@ def test_orchestrator_keeps_tool_outcome_uncertain_when_journal_update_fails(
         criteria=[
             AcceptanceCriterion(
                 criterion_id="write_result",
-                description="Crea result.txt",
+                description="Create result.txt",
                 required_tool="write_workspace_file",
                 required_path="result.txt",
             )
@@ -556,7 +646,7 @@ def test_orchestrator_keeps_tool_outcome_uncertain_when_journal_update_fails(
             }
         ),
     ) as execute_tool:
-        result = asyncio.run(orchestrator.run("Crea result.txt"))
+        result = asyncio.run(orchestrator.run("Create result.txt"))
 
     assert execute_tool.call_count == 1
     assert result["task"].status == "blocked"
@@ -590,7 +680,7 @@ def test_orchestrator_dispatches_fixed_checks_to_sandbox(monkeypatch):
             criteria=[
                 AcceptanceCriterion(
                     criterion_id="run_checks",
-                    description="Esegui i test",
+                    description="Run the tests",
                     required_tool="run_workspace_checks",
                 )
             ]
@@ -643,7 +733,7 @@ def test_orchestrator_dispatches_fixed_checks_to_sandbox(monkeypatch):
             {
                 "finish_reason": "stop",
                 "message": {
-                    "content": "I controlli sono passati.",
+                    "content": "The checks passed.",
                     "tool_calls": [],
                 },
             },
@@ -651,7 +741,7 @@ def test_orchestrator_dispatches_fixed_checks_to_sandbox(monkeypatch):
     )
 
     result = asyncio.run(
-        orchestrator.run("Esegui i test del progetto")
+        orchestrator.run("Run the project tests")
     )
 
     assert result["task"].status == "completed"

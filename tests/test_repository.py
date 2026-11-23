@@ -13,7 +13,7 @@ def repository(tmp_path):
 
 
 def make_task():
-    return TaskState(goal="Leggi result.txt")
+    return TaskState(goal="Read result.txt")
 
 
 def test_repository_saves_and_loads_task(repository):
@@ -141,14 +141,14 @@ def test_repository_marks_in_progress_tasks_as_interrupted(repository):
     assert loaded is not None
     assert loaded.status == "interrupted"
     assert loaded.iteration == 2
-    assert any("Processo terminato" in error for error in loaded.errors)
+    assert any("Process terminated" in error for error in loaded.errors)
 
 
 def test_repository_does_not_interrupt_completed_tasks(repository):
     task = make_task()
     task.plan = None
     task.status = "completed"
-    task.final_response = "Completata"
+    task.final_response = "Completed"
     repository.save(task)
 
     updated = repository.mark_interrupted()
@@ -243,7 +243,7 @@ def test_repository_migrates_legacy_database(tmp_path):
             ),
         )
 
-    # L'inizializzazione deve migrare il database esistente.
+    # Initialization must migrate the existing database.
     repository = TaskRepository(database)
 
     loaded = repository.get(task.task_id)
@@ -253,7 +253,7 @@ def test_repository_migrates_legacy_database(tmp_path):
     assert loaded.goal == task.goal
     assert loaded.status == "in_progress"
 
-    # Il nuovo vincolo SQL deve accettare interrupted.
+    # The new SQL constraint must accept interrupted.
     assert repository.mark_interrupted() == 1
 
     interrupted = repository.get(task.task_id)
@@ -261,7 +261,7 @@ def test_repository_migrates_legacy_database(tmp_path):
     assert interrupted is not None
     assert interrupted.status == "interrupted"
 
-    # Gli indici precedenti devono essere presenti.
+    # Existing indexes must be retained.
     with sqlite3.connect(database) as connection:
         indexes = {
             row[0]
@@ -296,7 +296,7 @@ def test_repository_records_operation_lifecycle(repository):
         task_id=task.task_id,
         call_id="call_001",
         status="succeeded",
-        result={"ok": True, "result": "contenuto"},
+        result={"ok": True, "result": "content"},
     )
 
     loaded = repository.get_operation(task.task_id, "call_001")
@@ -304,7 +304,7 @@ def test_repository_records_operation_lifecycle(repository):
     assert loaded["status"] == "succeeded"
     assert loaded["result"] == {
         "ok": True,
-        "result": "contenuto",
+        "result": "content",
     }
 
 
@@ -352,7 +352,7 @@ def test_repository_recovers_pending_operations(repository):
     )
 
     assert operation["status"] == "uncertain"
-    assert "Processo terminato" in operation["error"]
+    assert "Process terminated" in operation["error"]
 
 
 def test_repository_does_not_change_terminal_operations(repository):
@@ -535,7 +535,7 @@ def test_repository_metrics_counts_tasks_and_operations(repository):
         task.task_id,
         "call_metrics",
         "succeeded",
-        result={"ok": True, "result": "contenuto"},
+        result={"ok": True, "result": "content"},
     )
 
     metrics = repository.metrics()
@@ -566,7 +566,7 @@ def test_repository_records_operation_lifecycle(repository):
         task_id=task.task_id,
         call_id="call_001",
         status="succeeded",
-        result={"ok": True, "result": "contenuto"},
+        result={"ok": True, "result": "content"},
     )
 
     loaded = repository.get_operation(task.task_id, "call_001")
@@ -574,7 +574,7 @@ def test_repository_records_operation_lifecycle(repository):
     assert loaded["status"] == "succeeded"
     assert loaded["result"] == {
         "ok": True,
-        "result": "contenuto",
+        "result": "content",
     }
 
 
@@ -622,7 +622,7 @@ def test_repository_recovers_pending_operations(repository):
     )
 
     assert operation["status"] == "uncertain"
-    assert "Processo terminato" in operation["error"]
+    assert "Process terminated" in operation["error"]
 
 
 def test_repository_does_not_change_terminal_operations(repository):

@@ -23,9 +23,12 @@ class FakeAsyncClient:
     payload = None
     error = None
     request_error = None
+    request_payload = None
+    request_timeout = None
 
     def __init__(self, timeout):
         self.timeout = timeout
+        type(self).request_timeout = timeout
 
     async def __aenter__(self):
         return self
@@ -34,6 +37,7 @@ class FakeAsyncClient:
         pass
 
     async def post(self, url, json):
+        type(self).request_payload = json
         if self.request_error:
             raise self.request_error
 
@@ -143,6 +147,99 @@ def test_provider_accepts_valid_tool_calls(monkeypatch):
 
     assert result["finish_reason"] == "tool_calls"
     assert result["message"]["tool_calls"][0]["id"] == "call_1"
+    assert FakeAsyncClient.request_payload["max_tokens"] == 1500
+    assert FakeAsyncClient.request_timeout == 180
+
+
+@pytest.mark.parametrize(
+    "tool_name",
+    ["write_workspace_file", "edit_workspace_file"],
+)
+def test_provider_uses_larger_token_limit_for_file_writes(monkeypatch, tool_name):
+    FakeAsyncClient.payload = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [],
+                },
+                "finish_reason": "stop",
+            }
+        ]
+    }
+    FakeAsyncClient.error = None
+    FakeAsyncClient.request_error = None
+
+    monkeypatch.setattr(
+        "agent.models.provider.httpx.AsyncClient",
+        FakeAsyncClient,
+    )
+
+    provider = ModelProvider()
+    asyncio.run(
+        provider.complete(
+            messages=[],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {"name": tool_name},
+                }
+            ],
+        )
+    )
+
+    assert FakeAsyncClient.request_payload["max_tokens"] == 4096
+    assert FakeAsyncClient.request_timeout == 600
+
+
+@pytest.mark.parametrize(
+    "tool_name",
+    ["write_workspace_file", "edit_workspace_file"],
+)
+def test_provider_configures_file_write_timeout(monkeypatch, tool_name):
+    monkeypatch.setenv("MODEL_TIMEOUT_SECONDS", "120")
+    monkeypatch.setenv("MODEL_WRITE_TIMEOUT_SECONDS", "240")
+    FakeAsyncClient.payload = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [],
+                },
+                "finish_reason": "stop",
+            }
+        ]
+    }
+    FakeAsyncClient.error = None
+    FakeAsyncClient.request_error = None
+    monkeypatch.setattr(
+        "agent.models.provider.httpx.AsyncClient",
+        FakeAsyncClient,
+    )
+
+    asyncio.run(
+        ModelProvider().complete(
+            messages=[],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {"name": tool_name},
+                }
+            ],
+        )
+    )
+
+    assert FakeAsyncClient.request_timeout == 240
+
+
+@pytest.mark.parametrize("value", ["1499", "8193", "invalid"])
+def test_provider_rejects_invalid_write_token_limit(monkeypatch, value):
+    monkeypatch.setenv("MODEL_WRITE_MAX_TOKENS", value)
+
+    with pytest.raises(ValueError, match="MODEL_WRITE_MAX_TOKENS"):
+        ModelProvider()
 
 
 @pytest.mark.parametrize(
@@ -235,6 +332,14 @@ def test_provider_rejects_invalid_timeout(monkeypatch):
     monkeypatch.setenv("MODEL_TIMEOUT_SECONDS", "0")
 
     with pytest.raises(ValueError, match="between 1 and 600"):
+        ModelProvider()
+
+
+@pytest.mark.parametrize("value", ["0", "601"])
+def test_provider_rejects_invalid_write_timeout(monkeypatch, value):
+    monkeypatch.setenv("MODEL_WRITE_TIMEOUT_SECONDS", value)
+
+    with pytest.raises(ValueError, match="MODEL_WRITE_TIMEOUT_SECONDS"):
         ModelProvider()
 
 

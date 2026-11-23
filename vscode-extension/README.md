@@ -49,6 +49,9 @@ result in the **Workbench Coding Agent** Output channel, then stops the API.
 Task records are stored in the extension's VS Code global storage, separate
 from the target project.
 
+File-writing requests use a 600-second model timeout and a 4096-token response
+limit by default; the normal model timeout remains 180 seconds.
+
 `/agent/run` plans and then executes the task. Ask for analysis or a plan
 without requesting changes when you only want a review. The agent has no shell
 tool; writes are limited to its approved workspace tools.

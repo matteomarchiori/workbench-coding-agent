@@ -130,6 +130,16 @@ class TaskState(BaseModel):
                 and isinstance(value.get("backup"), str)
             )
 
+        if tool == "edit_workspace_file":
+            return (
+                isinstance(value, dict)
+                and value.get("changed") is False
+                and value.get("backup") is None
+                or isinstance(value, dict)
+                and value.get("changed") is True
+                and isinstance(value.get("backup"), str)
+            )
+
         if tool == "run_workspace_checks":
             checks = value.get("checks") if isinstance(value, dict) else None
             names = {
@@ -191,32 +201,33 @@ class TaskState(BaseModel):
         if not isinstance(parsed_arguments, dict):
             return False
 
-        for criterion in self.plan.criteria:
-            if criterion.satisfied:
-                continue
+        criterion = next(
+            (
+                item
+                for item in self.plan.criteria
+                if not item.satisfied
+            ),
+            None,
+        )
+        if criterion is None or criterion.required_tool != tool:
+            return False
 
-            if criterion.required_tool != tool:
-                continue
+        if criterion.required_path is None:
+            return True
 
-            if criterion.required_path is None:
-                return True
+        actual_path = parsed_arguments.get("path")
 
-            actual_path = parsed_arguments.get("path")
+        if not isinstance(actual_path, str):
+            return False
 
-            if not isinstance(actual_path, str):
-                continue
+        actual_normalized = self.normalize_path(actual_path)
+        required_normalized = self.normalize_path(criterion.required_path)
 
-            actual_normalized = self.normalize_path(actual_path)
-            required_normalized = self.normalize_path(criterion.required_path)
-
-            if (
-                actual_normalized is not None
-                and required_normalized is not None
-                and actual_normalized == required_normalized
-            ):
-                return True
-
-        return False
+        return (
+            actual_normalized is not None
+            and required_normalized is not None
+            and actual_normalized == required_normalized
+        )
 
     def record_tool(
         self,

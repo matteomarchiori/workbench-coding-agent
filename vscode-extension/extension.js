@@ -6,6 +6,7 @@ const { spawn } = require("node:child_process");
 const vscode = require("vscode");
 
 const MODEL_TIMEOUT_SECONDS = 180;
+const MODEL_WRITE_TIMEOUT_SECONDS = 600;
 const MAX_API_RESPONSE_BYTES = 2_000_000;
 let outputChannel;
 
@@ -17,7 +18,7 @@ async function selectWorkspaceFolder() {
   const folders = vscode.workspace.workspaceFolders ?? [];
 
   if (folders.length === 0) {
-    throw new Error("Apri una cartella di progetto in VS Code prima di avviare il workbench.");
+    throw new Error("Open a project folder in VS Code before starting the workbench.");
   }
 
   if (folders.length === 1) {
@@ -30,7 +31,7 @@ async function selectWorkspaceFolder() {
       description: folder.uri.fsPath,
       folder,
     })),
-    { placeHolder: "Scegli il progetto su cui eseguire il workbench" },
+    { placeHolder: "Choose the project to run the workbench on" },
   );
 
   return selected?.folder;
@@ -41,7 +42,7 @@ function resolvePythonPath(config, backendPath) {
 
   if (configuredPath) {
     if (!path.isAbsolute(configuredPath) || !fs.existsSync(configuredPath)) {
-      throw new Error("workbenchAgent.pythonPath deve indicare un eseguibile Python esistente.");
+      throw new Error("workbenchAgent.pythonPath must point to an existing Python executable.");
     }
     return configuredPath;
   }
@@ -52,7 +53,7 @@ function resolvePythonPath(config, backendPath) {
 
   if (!fs.existsSync(defaultPath)) {
     throw new Error(
-      `Python non trovato in ${defaultPath}. Configura workbenchAgent.pythonPath.`,
+      `Python was not found at ${defaultPath}. Configure workbenchAgent.pythonPath.`,
     );
   }
 
@@ -70,7 +71,7 @@ async function getFreePort() {
   const address = server.address();
   if (!address || typeof address === "string") {
     server.close();
-    throw new Error("Impossibile assegnare una porta locale all'API.");
+    throw new Error("Unable to assign a local port to the API.");
   }
 
   const { port } = address;
@@ -107,6 +108,7 @@ async function startBackend({ backendPath, pythonPath, workspacePath, databasePa
         MODEL_BASE_URL: config.get("modelBaseUrl", "http://127.0.0.1:8000/v1"),
         MODEL_NAME: config.get("modelName", "Qwen/Qwen3-8B-MLX-4bit"),
         MODEL_TIMEOUT_SECONDS: String(MODEL_TIMEOUT_SECONDS),
+        MODEL_WRITE_TIMEOUT_SECONDS: String(MODEL_WRITE_TIMEOUT_SECONDS),
         MODEL_MAX_RETRIES: "2",
         TASK_RETENTION_DAYS: "0",
         SANDBOX_ENABLED: "false",
@@ -138,13 +140,13 @@ async function startBackend({ backendPath, pythonPath, workspacePath, databasePa
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {
       if (spawnError) {
-        throw new Error(`Avvio dell'API non riuscito: ${spawnError.message}`);
+        throw new Error(`Failed to start the API: ${spawnError.message}`);
       }
 
       if (child.exitCode !== null || child.signalCode !== null) {
         const exit = await exitPromise;
         throw new Error(
-          `L'API si è chiusa prima di diventare disponibile (${exit.code ?? exit.signal}).\n${processOutput}`,
+          `The API exited before becoming available (${exit.code ?? exit.signal}).\n${processOutput}`,
         );
       }
 
@@ -160,7 +162,7 @@ async function startBackend({ backendPath, pythonPath, workspacePath, databasePa
       }
     }
 
-    throw new Error(`Timeout nell'avvio dell'API.\n${processOutput}`);
+    throw new Error(`Timed out while starting the API.\n${processOutput}`);
   } catch (error) {
     await stopBackend({ child, exitPromise });
     throw error;
@@ -199,7 +201,7 @@ async function runAgent(apiUrl, goal) {
 
   const body = await response.text();
   if (Buffer.byteLength(body, "utf8") > MAX_API_RESPONSE_BYTES) {
-    throw new Error("La risposta dell'API supera il limite consentito.");
+    throw new Error("The API response exceeds the allowed size.");
   }
 
   if (!response.ok) {
@@ -211,11 +213,11 @@ async function runAgent(apiUrl, goal) {
 
 function formatResult(projectPath, goal, result) {
   const lines = [
-    `Progetto: ${projectPath}`,
-    `Richiesta: ${goal}`,
-    `Stato: ${result.task?.status ?? "sconosciuto"}`,
+    `Project: ${projectPath}`,
+    `Request: ${goal}`,
+    `Status: ${result.task?.status ?? "unknown"}`,
     "",
-    "Piano validato:",
+    "Validated plan:",
   ];
 
   const criteria = result.task?.plan?.criteria ?? [];
@@ -223,10 +225,10 @@ function formatResult(projectPath, goal, result) {
     lines.push(`- ${criterion.description}`);
   }
 
-  lines.push("", "Risultato:", result.response ?? "(nessuna risposta)");
+  lines.push("", "Result:", result.response ?? "(no response)");
 
   if (result.task?.errors?.length) {
-    lines.push("", "Dettagli:", ...result.task.errors.map((error) => `- ${error}`));
+    lines.push("", "Details:", ...result.task.errors.map((error) => `- ${error}`));
   }
 
   return lines.join("\n");
@@ -239,29 +241,29 @@ async function runCommand(context) {
   }
 
   if (folder.uri.scheme !== "file") {
-    throw new Error("Questa estensione richiede un progetto disponibile come cartella locale.");
+    throw new Error("This extension requires a project available as a local folder.");
   }
 
   const config = vscode.workspace.getConfiguration("workbenchAgent");
   const backendPath = config.get("backendPath", "").trim();
   if (!backendPath || !path.isAbsolute(backendPath)) {
     throw new Error(
-      "Configura workbenchAgent.backendPath con il percorso assoluto del repository Workbench Coding Agent.",
+      "Set workbenchAgent.backendPath to the absolute path of the Workbench Coding Agent repository.",
     );
   }
 
   const resolvedBackendPath = fs.realpathSync(backendPath);
   if (!fs.existsSync(path.join(resolvedBackendPath, "agent", "main.py"))) {
-    throw new Error("workbenchAgent.backendPath non contiene agent/main.py.");
+    throw new Error("workbenchAgent.backendPath does not contain agent/main.py.");
   }
 
   const goal = await vscode.window.showInputBox({
     title: `Workbench — ${folder.name}`,
-    prompt: "Descrivi cosa vuoi che analizzi o faccia nel progetto",
-    placeHolder: "Es. Analizza l'architettura e suggerisci un piano...",
+    prompt: "Describe what you want the agent to analyze or do in the project",
+    placeHolder: "e.g. Analyze the architecture and suggest a plan...",
     ignoreFocusOut: true,
     validateInput: (value) => value.trim().length > 20_000
-      ? "La richiesta non può superare 20.000 caratteri."
+      ? "The request cannot exceed 20,000 characters."
       : undefined,
   });
 
@@ -276,7 +278,7 @@ async function runCommand(context) {
 
   const output = outputChannel;
   output.clear();
-  output.appendLine(`Avvio workbench per ${workspacePath}`);
+  output.appendLine(`Starting workbench for ${workspacePath}`);
 
   await vscode.window.withProgress(
     {
@@ -300,13 +302,13 @@ async function runCommand(context) {
         output.show(true);
 
         if (result.task?.status === "completed") {
-          vscode.window.showInformationMessage("Workbench ha completato l'attività. Apri l'Output per il piano e il risultato.");
+          vscode.window.showInformationMessage("Workbench completed the task. Open Output to view the plan and result.");
         } else {
-          vscode.window.showWarningMessage("Workbench non ha completato l'attività. Apri l'Output per i dettagli.");
+          vscode.window.showWarningMessage("Workbench did not complete the task. Open Output for details.");
         }
       } catch (error) {
         const details = error instanceof Error ? error.message : String(error);
-        output.appendLine(`Errore: ${details}`);
+        output.appendLine(`Error: ${details}`);
         output.show(true);
         throw error;
       } finally {

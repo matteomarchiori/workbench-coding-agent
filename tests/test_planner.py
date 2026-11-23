@@ -24,6 +24,7 @@ def make_plan(tool, path):
     [
         "read_workspace_file",
         "write_workspace_file",
+        "edit_workspace_file",
     ],
 )
 @pytest.mark.parametrize(
@@ -44,6 +45,7 @@ def test_accepts_valid_relative_paths(tool, path):
     [
         "read_workspace_file",
         "write_workspace_file",
+        "edit_workspace_file",
     ],
 )
 @pytest.mark.parametrize(
@@ -67,13 +69,47 @@ def test_rejects_invalid_paths(tool, path):
 @pytest.mark.parametrize(
     "tool",
     [
-        "list_workspace_files",
         "search_workspace_code",
     ],
 )
-def test_rejects_unexpected_path_for_other_tools(tool):
+@pytest.mark.parametrize(
+    "path",
+    [
+        "README.md",
+        "docs",
+        "src/components",
+        ".",
+    ],
+)
+def test_accepts_valid_paths_for_search_tool(tool, path):
+    validate_plan_paths(make_plan(tool, path))
+
+
+@pytest.mark.parametrize(
+    "tool",
+    [
+        "search_workspace_code",
+    ],
+)
+@pytest.mark.parametrize(
+    "path",
+    [
+        "",
+        "/etc",
+        "../outside",
+        "folder/../outside",
+        r"folder\outside",
+        "a" * 501,
+    ],
+)
+def test_rejects_invalid_paths_for_search_tool(tool, path):
     with pytest.raises(ValueError):
-        validate_plan_paths(make_plan(tool, "result.txt"))
+        validate_plan_paths(make_plan(tool, path))
+
+
+def test_rejects_unexpected_path_for_list_tool():
+    with pytest.raises(ValueError, match="Unexpected required_path"):
+        validate_plan_paths(make_plan("list_workspace_files", "README.md"))
 
 
 @pytest.mark.parametrize(
@@ -89,6 +125,7 @@ def test_accepts_missing_path_for_other_tools(tool):
 
 def test_write_workspace_file_is_allowed():
     assert "write_workspace_file" in ALLOWED_TOOLS
+    assert "edit_workspace_file" in ALLOWED_TOOLS
 
 import json
 
@@ -101,10 +138,12 @@ class FakeProvider:
     def __init__(self, responses):
         self.responses = responses
         self.calls = 0
+        self.messages = []
 
     async def complete(self, messages, tools=None):
         response = self.responses[self.calls]
         self.calls += 1
+        self.messages.append(messages)
 
         return {
             "message": {
@@ -119,7 +158,7 @@ def test_planner_accepts_requested_file_write():
                 "criteria": [
                     {
                         "criterion_id": "write_readme",
-                        "description": "Modifica README.md",
+                        "description": "Modify README.md",
                         "required_tool": "write_workspace_file",
                         "required_path": "README.md",
                     }
@@ -135,7 +174,7 @@ def test_planner_accepts_requested_file_write():
     planner = TaskPlanner(provider)
 
     plan = asyncio.run(
-        planner.create_plan("Modifica il file README.md")
+        planner.create_plan("Modify the README.md file")
     )
 
     assert len(plan.criteria) == 1
@@ -146,12 +185,12 @@ def test_planner_accepts_requested_file_write():
 def test_planner_retries_after_reviewer_rejection():
     provider = FakeProvider(
         responses=[
-            # Primo piano: percorso non corretto
+            # First plan: incorrect path
             {
                 "criteria": [
                     {
                         "criterion_id": "write_readme",
-                        "description": "Modifica README.md",
+                        "description": "Modify README.md",
                         "required_tool": "write_workspace_file",
                         "required_path": "docs/README.md",
                     }
@@ -160,14 +199,14 @@ def test_planner_retries_after_reviewer_rejection():
             # Il Reviewer rifiuta
             {
                 "approved": False,
-                "issues": ["Il percorso richiesto non è corretto"],
+                "issues": ["The requested path is incorrect"],
             },
-            # Secondo piano: percorso corretto
+            # Second plan: correct path
             {
                 "criteria": [
                     {
                         "criterion_id": "write_readme",
-                        "description": "Modifica README.md",
+                        "description": "Modify README.md",
                         "required_tool": "write_workspace_file",
                         "required_path": "README.md",
                     }
@@ -184,7 +223,7 @@ def test_planner_retries_after_reviewer_rejection():
     planner = TaskPlanner(provider)
 
     plan = asyncio.run(
-        planner.create_plan("Modifica il file README.md")
+        planner.create_plan("Modify the README.md file")
     )
 
     assert plan.criteria[0].required_path == "README.md"
@@ -198,43 +237,43 @@ def test_planner_fails_after_three_rejections():
                 "criteria": [
                     {
                         "criterion_id": "write_readme",
-                        "description": "Modifica README.md",
+                        "description": "Modify README.md",
                         "required_tool": "write_workspace_file",
                         "required_path": "README.md",
                     }
                 ]
             },
-            {"approved": False, "issues": ["Percorso errato"]},
+            {"approved": False, "issues": ["Incorrect path"]},
             {
                 "criteria": [
                     {
                         "criterion_id": "write_readme",
-                        "description": "Modifica README.md",
+                        "description": "Modify README.md",
                         "required_tool": "write_workspace_file",
                         "required_path": "README.md",
                     }
                 ]
             },
-            {"approved": False, "issues": ["Operazione non corretta"]},
+            {"approved": False, "issues": ["Incorrect operation"]},
             {
                 "criteria": [
                     {
                         "criterion_id": "write_readme",
-                        "description": "Modifica README.md",
+                        "description": "Modify README.md",
                         "required_tool": "write_workspace_file",
                         "required_path": "README.md",
                     }
                 ]
             },
-            {"approved": False, "issues": ["Piano ancora non valido"]},
+            {"approved": False, "issues": ["Plan is still invalid"]},
         ]
     )
 
     planner = TaskPlanner(provider)
 
-    with pytest.raises(ValueError, match="approved plan"):
+    with pytest.raises(ValueError, match="Plan is still invalid"):
         asyncio.run(
-            planner.create_plan("Modifica il file README.md")
+            planner.create_plan("Modify the README.md file")
         )
 
     assert provider.calls == 6
@@ -252,13 +291,13 @@ def test_planner_rejects_duplicate_tool_path_criteria(tool, path):
     criteria = [
         {
             "criterion_id": "criterion_1",
-            "description": "Prima operazione",
+            "description": "First operation",
             "required_tool": tool,
             "required_path": path,
         },
         {
             "criterion_id": "criterion_2",
-            "description": "Seconda operazione",
+            "description": "Second operation",
             "required_tool": tool,
             "required_path": path,
         },
@@ -273,7 +312,96 @@ def test_planner_rejects_duplicate_tool_path_criteria(tool, path):
     planner = TaskPlanner(provider)
 
     with pytest.raises(ValueError, match="Duplicate tool and path"):
-        asyncio.run(planner.create_plan("Esegui due operazioni"))
+        asyncio.run(planner.create_plan("Run two operations"))
+
+
+def test_planner_accepts_requested_file_edit():
+    provider = FakeProvider(
+        responses=[
+            {
+                "criteria": [
+                    {
+                        "criterion_id": "edit_readme",
+                        "description": "Update README.md",
+                        "required_tool": "edit_workspace_file",
+                        "required_path": "README.md",
+                    }
+                ]
+            },
+            {"approved": True, "issues": []},
+        ]
+    )
+
+    plan = asyncio.run(
+        TaskPlanner(provider).create_plan("Add a missing section to README.md")
+    )
+
+    assert plan.criteria[0].required_tool == "edit_workspace_file"
+    assert plan.criteria[0].required_path == "README.md"
+    assert provider.calls == 2
+
+
+def test_planner_accepts_document_creation_without_document_body_in_plan():
+    provider = FakeProvider(
+        responses=[
+            {
+                "criteria": [
+                    {
+                        "criterion_id": "create_contributing",
+                        "description": (
+                            "Create an English CONTRIBUTING.md with "
+                            "guidelines for contributing via pull requests."
+                        ),
+                        "required_tool": "write_workspace_file",
+                        "required_path": "CONTRIBUTING.md",
+                    }
+                ]
+            },
+            {"approved": True, "issues": []},
+        ]
+    )
+
+    plan = asyncio.run(
+        TaskPlanner(provider).create_plan(
+            "Add CONTRIBUTING.md with guidelines for contributing via PRs. In English."
+        )
+    )
+
+    assert plan.criteria[0].required_tool == "write_workspace_file"
+    assert plan.criteria[0].required_path == "CONTRIBUTING.md"
+    reviewer_instructions = provider.messages[1][0]["content"]
+    assert "Do not require the plan to contain a draft, full text" in (
+        reviewer_instructions
+    )
+    assert provider.calls == 2
+
+
+def test_planner_accepts_search_scoped_to_readme():
+    provider = FakeProvider(
+        responses=[
+            {
+                "criteria": [
+                    {
+                        "criterion_id": "search_readme",
+                        "description": "Analyze README.md",
+                        "required_tool": "search_workspace_code",
+                        "required_path": "README.md",
+                    }
+                ]
+            },
+            {"approved": True, "issues": []},
+        ]
+    )
+
+    plan = asyncio.run(
+        TaskPlanner(provider).create_plan(
+            "Analyze the README.md. Add sections if anything is missing"
+        )
+    )
+
+    assert plan.criteria[0].required_tool == "search_workspace_code"
+    assert plan.criteria[0].required_path == "README.md"
+    assert provider.calls == 2
 
 
 def test_planner_only_allows_fixed_checks_when_sandbox_is_enabled():
@@ -281,7 +409,7 @@ def test_planner_only_allows_fixed_checks_when_sandbox_is_enabled():
         "criteria": [
             {
                 "criterion_id": "run_checks",
-                "description": "Esegui i test fissi",
+                "description": "Run the fixed tests",
                 "required_tool": "run_workspace_checks",
                 "required_path": None,
             }
@@ -293,13 +421,13 @@ def test_planner_only_allows_fixed_checks_when_sandbox_is_enabled():
         sandbox_enabled=False,
     )
     with pytest.raises(ValueError, match="Unauthorized tool"):
-        asyncio.run(disabled_planner.create_plan("Esegui i test"))
+        asyncio.run(disabled_planner.create_plan("Run the tests"))
 
     enabled_planner = TaskPlanner(
         FakeProvider([plan_response, {"approved": True, "issues": []}]),
         sandbox_enabled=True,
     )
     plan = asyncio.run(
-        enabled_planner.create_plan("Esegui i test del progetto")
+        enabled_planner.create_plan("Run the project tests")
     )
     assert plan.criteria[0].required_tool == "run_workspace_checks"
